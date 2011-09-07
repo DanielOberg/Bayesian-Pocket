@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-} 
-module Bayesian where
+module Bayesian(train, classify, classifyWithDefault) where
 
 import Text.Regex.Posix
 
@@ -32,13 +32,15 @@ getwords doc = Set.fromList words
     words = [T.toCaseFold (T.pack s) | s <- splitOneOf splittTokens doc, length s > 2, length s < 20]
 
 
-data Category = Good | Bad deriving (Eq, Show, Ord, Enum)
+data Category = Good | Bad deriving (Eq, Show, Ord, Enum, Read)
 
 data ClassifierData = ClassifierData { 
                         fc :: Map (T.Text, Category) Int, -- feature (token) count
                         cc :: Map Category Int, -- Sum
-                        thresholds :: Map Category Float
-                      } deriving (Eq, Show, Ord)
+                        thresholds :: Map Category Float,
+                        weight :: Float,
+                        ap :: Float
+                      } deriving (Eq, Show, Read)
 
 getfeatures = getwords
 
@@ -68,26 +70,29 @@ train d item cat = incc d' cat
     d' = Set.fold (\f ld -> incf ld f cat) d features 
 
 fprob d f cat 
-  | catcount d cat == 0 = 0
+  | catcount d cat == 0 = 0.0
   | otherwise = fromIntegral (fcount d f cat) / fromIntegral (catcount d cat) 
 
 
 default_weight = 1.0
 default_ap = 0.5
 
+weightedprob :: ClassifierData -> T.Text -> Category -> (T.Text -> Category -> Float) -> Float -> Float -> Float
 weightedprob d f cat prf weight ap = ((weight*ap)+(totals*basicprob))/(weight+totals)
   where
     basicprob = prf f cat
     totals = fromIntegral (sum [fcount d f c | c <- categories])
 
-docprob d item cat = product [weightedprob d f cat (fprob d) | f <- Set.toList features]
+docprob :: ClassifierData -> String -> Category -> Float
+docprob d item cat = product [weightedprob d f cat (fprob d) default_weight default_ap | f <- Set.toList features]
   where
     features = getfeatures item
 
-prob d item cat = docprob * catprob
+prob :: ClassifierData -> String -> Category -> Float
+prob d item cat = docp * catp
   where
-    catprob = fromIntegral (catcount d cat) / fromIntegral (totalcount d)
-    docprob = fromIntegral docprob d item cat
+    catp    = fromIntegral (catcount d cat) / fromIntegral (totalcount d)
+    docp    = docprob d item cat
 
 default_thresholds = Map.fromList [(Good, 1.0), (Bad, 3.0)]
 
@@ -95,10 +100,25 @@ setthreshold d cat n = d { thresholds = Map.insert cat n (thresholds d) }
 
 getthreshold d cat = fromMaybe 0.0 (Map.lookup cat (thresholds d))
 
-
-classify d item def = if breaksThreshold then def else best_cat
+classifyWithDefault :: ClassifierData -> String -> Category -> Category
+classifyWithDefault d item def = if breaksThreshold then def else best_cat
   where
-    probs = [(fromIntegral (prob d item cat), cat) | cat <- categories]
+    probs = [(prob d item cat, cat) | cat <- categories]
     (best_p, best_cat) = maximumBy (comparing fst) probs
     breaksThreshold = or [p*(getthreshold d best_cat) > best_p | (p, c) <- probs]
-    
+
+classify :: ClassifierData -> String -> Category
+classify d item = classifyWithDefault d item Good
+
+emptyData = ClassifierData Map.empty Map.empty default_thresholds default_weight default_ap
+sampletrain da = foldl (\d (s, c) -> train d s c) da trainingdata
+  where
+    trainingdata = [("Nobody owns the water.", Good), 
+                    ("the quick rabbit jumps fences", Good),
+                    ("buy pharmaceuticals now", Bad),
+                    ("make quick money at the online casino", Bad),
+                    ("the quick brown fox jumps", Good)]
+
+sample = sampletrain emptyData
+
+
