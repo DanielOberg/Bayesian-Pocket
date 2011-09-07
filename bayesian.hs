@@ -1,6 +1,16 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Bayesian(train, classify, classify_with_default) where
+module Bayesian 
+  (
+    train
+  , classify
+  , classify_with_default
+  , load_data
+  , save_data
+  , default_data
+  , ClassifierData
+  , Category(..)
+  ) where
 
 import Data.Maybe
 import Data.Ord
@@ -45,12 +55,12 @@ train d item cat = inc_cc d' cat
     features = get_features item
     d' = Set.fold (\f ld -> inc_fc ld f cat) d features 
 
--- | Classify the string into a category and categorise as Good if unsure
+-- | Classify the string into a category and categorise as Bad if unsure
 --
 --   > classify sample "Mail me money"
 --   Bad
 classify :: ClassifierData -> String -> Category
-classify d item = classify_with_default d item Good
+classify d item = classify_with_default d item Bad
 
 -- | Classify the string into a category and categorise as 'def' if unsure
 --
@@ -65,7 +75,7 @@ classify_with_default d item def = if breaksThreshold then def else best_cat
 
 -- | Load dataset from file
 load_from f = do 
-  str <- readFile f
+  str <- catch (readFile f) (\_ -> return $ show default_data)
   return (read str :: ClassifierData)
 
 -- | Save dataset to file
@@ -142,6 +152,4 @@ example_training da = foldl (\d (s, c) -> train d s c) da trainingdata
                     ("the quick brown fox jumps", Good)]
 
 sample = example_training default_data
-
-main = do
 
