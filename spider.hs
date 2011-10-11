@@ -21,7 +21,14 @@ selectAnchors =
        -- to combine it.
        (listA (deep isText >>> getText) >>> arr concat))
 
-urlLink = "http://eztv.it/"
+atTag tag = deep (isElem >>> hasName tag)
+text = getChildren >>> getText
+
+selectRSSLinks = atTagCase "item" >>>
+  proc x -> do
+    title <- text <<< atTagCase "title" -< x
+    link <- text <<< atTagCase "link" -< x
+    returnA -< (link, title)
 
 -- case-insensitive tag matching
 atTagCase tag = deep (isElem >>> hasNameWith ((== tag') . upper . localPart))
@@ -30,6 +37,10 @@ atTagCase tag = deep (isElem >>> hasNameWith ((== tag') . upper . localPart))
 
 parseHTML = readString [ withValidate no
                        , withParseHTML yes
+                       , withWarnings no
+                       ]
+
+parseRSS = readString [ withValidate no
                        , withWarnings no
                        ]
 
@@ -55,7 +66,13 @@ getLinks :: URI -> IO [(String, String)]
 getLinks uri = do 
   body  <- get uri
   links <- runX (parseHTML body >>> selectAnchors)
-  return $ filterBadLinks (show uri) links
+  case null links of
+       True -> do
+          rsslinks <- runX (parseRSS body >>> selectRSSLinks)
+          return $ filterBadLinks (show uri) rsslinks
+       False -> do
+          return $ filterBadLinks (show uri) links
+
 
 filterBadLinks :: String -> [(String, String)] -> [(String, String)]
 filterBadLinks base links = [(strip title, strip absolute) | (url, title) <- links
