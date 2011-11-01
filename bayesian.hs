@@ -6,15 +6,18 @@ module Bayesian
   , trainWithSmallSet
   , classify
   , classify_with_default
-  , load_data
-  , save_data
+  , load_from
+  , save_to
   , default_data
   , set_threshold
   , get_threshold
+  , get_features
   , ClassifierData
   , Category(..)
   ) where
 
+
+import System.IO
 import Data.Maybe
 import Data.Ord
 import Data.List
@@ -42,8 +45,6 @@ data ClassifierData = ClassifierData
 
 -------------------------------- DEFAULT VALUES -----------------------------
 
-default_filename :: FilePath
-default_filename = "pocket_data.txt"
 default_weight :: Float
 default_weight   = 1.0
 default_ap :: Float
@@ -94,7 +95,10 @@ classify_with_default d item def = if breaksThreshold then def else best_cat
 -- | Load dataset from file
 load_from :: FilePath -> IO ClassifierData
 load_from f = do 
-  str <- catch (readFile f) (\_ -> return $ show default_data)
+  str <- catch (readFile f)
+               (\_ -> do 
+                   hPutStr stderr ("Saving to: " ++ f)
+                   return $ show default_data)
   return (read str :: ClassifierData)
 
 -- | Save dataset to file
@@ -102,11 +106,6 @@ save_to :: Show a => FilePath -> a -> IO ()
 save_to f d = do
   writeFile f (show d)
 
-load_data :: IO ClassifierData
-load_data = load_from default_filename
-
-save_data :: Show a => a -> IO ()
-save_data d = save_to default_filename d
 
 -------------------------------- PRIVATE FUNCTIONS -------------------------
 
@@ -195,6 +194,7 @@ set_threshold d cat n = d { thresholds = Map.insert cat n (thresholds d) }
 get_threshold :: ClassifierData -> Category -> Float
 get_threshold d cat = fromMaybe 0.0 (Map.lookup cat (thresholds d))
 
+{-
 example_training :: ClassifierData -> ClassifierData
 example_training da = foldl (\d (s, c) -> train d s c) da trainingdata
   where
@@ -206,4 +206,4 @@ example_training da = foldl (\d (s, c) -> train d s c) da trainingdata
 
 sample :: ClassifierData
 sample = example_training default_data
-
+-}
