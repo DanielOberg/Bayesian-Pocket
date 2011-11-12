@@ -14,6 +14,9 @@ import qualified Data.Text as T
 import Control.Concurrent
 import System.Directory
 import System.FilePath
+import Text.Regex.PCRE.Light
+import qualified Data.ByteString.Char8 as B
+
 
 import Control.Concurrent.STM
 
@@ -47,8 +50,8 @@ main = do
 readEvalLoop :: TVar [[(String, String)]] -> (TVar [String], TVar ClassifierData) -> InputT IO ()
 readEvalLoop tlinks (ts, td) = do
   dp <- lift $ readTVarIO td
-  links <- lift $ readTVarIO tlinks
-  linknrs <- numberUrls dp (concat links)
+  links <- fmap (filterLinks .  concat) $ lift $ readTVarIO tlinks
+  linknrs <- numberUrls dp (links)
   mstr <- getInputLine "% "
   case mstr of
        Nothing -> return ()
@@ -69,14 +72,17 @@ readEvalLoop tlinks (ts, td) = do
                             readEvalLoop tlinks (ts, td)
 
 numberUrls :: (Ord k, Num k, Monad m, Enum k) 
-           => ClassifierData -> [(String, t)] -> m (Map k (Category, String, t))
+           => ClassifierData 
+           -> [(String, t)] 
+           -> m (Map k (Category, String, t))
 numberUrls d links = do
   let linkclasses = map (\(t, l) -> (classify d t, t, l)) links
   let linknrs = Map.fromList $ zip [1..] linkclasses
   return linknrs
 
 printUrls :: (MonadIO m, Show a1, Show a) 
-          => Map a (a1, [Char], t) -> InputT m ()
+          => Map a (a1, [Char], t) 
+          -> InputT m ()
 printUrls linknrs = 
   mapM_ 
     (\(nr, (cat, title, _)) -> 
@@ -84,14 +90,17 @@ printUrls linknrs =
        (Map.toList linknrs)
 
 printTitlesOnly :: MonadIO m 
-                => Map t (t1, String, t2) -> InputT m ()
+                => Map t (t1, String, t2) 
+                -> InputT m ()
 printTitlesOnly linknrs = 
   mapM_ 
     (\(_, (_, title, _)) -> 
        outputStrLn (title))
        (Map.toList linknrs)
 
-printLinksOnly :: MonadIO m => Map t (t1, t2, String) -> InputT m ()
+printLinksOnly :: MonadIO m 
+               => Map t (t1, t2, String) 
+               -> InputT m ()
 printLinksOnly linknrs = 
   mapM_ 
     (\(_, (_, _, url)) -> 
@@ -109,13 +118,21 @@ padNrTo le nr = (replicate nr' '0') ++ text
     nr' = le - (length text)
     text = show nr
 
+filterLinks strs = filter (\(title, _) -> match r (B.pack title) [] /= Nothing) strs
+  where
+    r = compile "(S\\d?\\dE\\d\\d)|(\\d?\\dx\\d\\d)" [caseless]
+
 lineSeperator :: String -> String
 lineSeperator = padTo 80 '-'
 
 cutLine :: String -> String
 cutLine s = take 80 s
 
-controller :: [String] -> [String] -> ClassifierData -> Map Int (Category, String, String) -> InputT IO ([String], ClassifierData, Bool)
+controller :: [String] 
+           -> [String] 
+           -> ClassifierData 
+           -> Map Int (Category, String, String) 
+           -> InputT IO ([String], ClassifierData, Bool)
 controller (com:args) s d ns 
   | com == "add-source " = do
       let s' = removeDuplicates (args ++ s)

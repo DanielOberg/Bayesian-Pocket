@@ -1,24 +1,38 @@
-Name:                pocket
+Name:                Pocket
 Version:             0.1
-Description:         Combined link crawler and bayesian filter
-License:             GPL
+Synopsis:            Fantastic combinaion of a bayesian filter and a linkcrawler
+Description:         Fantastic combinaion of a bayesian filter and a linkcrawler
+License:             MIT
 Author:              Daniel Öberg
-Build-Type:          Simple
-Cabal-Version:       >=1.2
+Maintainer:          daniel.oberg@mjukvaruutveckling.se
+Stability:           Experimental
+Category:            Web
+Build-type:          Simple
+Cabal-version:       >=1.2
+
 Executable pocket
-  Main-is:           pocket.hs
-  ghc-options:       -O3 -threaded -rtsopts -with-rtsopts=-N
-  Build-Depends:     base >= 3 && < 5, 
-                     text >= 0.11 && < 0.20,
-                     containers >= 0.4 && < 0.5,
-                     split >= 0.1 && < 0.2,
-                     HTTP >= 4000 && < 7000,
-                     network >= 2.3 && < 3.0,
-                     hxt >= 9 && < 10,
-                     hslogger >= 1.1 && < 1.3,
-                     haskeline >= 0.6 && < 1.0,
-                     stm >= 2.2 && < 3.0,
-                     filepath >= 1.2 && < 2.0,
-                     directory >= 1.1 && < 2.0,
-                     process >= 1.0 && < 2.0,
-                     mtl >= 2.0 && < 3.0
+  Main-is: pocket.hs
+  Build-depends:
+    base >= 4 && < 5,
+    bytestring >= 0.9.1 && < 0.10,
+    mtl >= 2 && < 3,
+    text >= 0.11 && < 0.12,
+    time >= 1.1 && < 1.4,
+    xmlhtml == 0.1.*,
+    containers == 0.4.*,
+    split == 0.*,
+    hxt == 9.*,
+    HTTP == 4000.*,
+    network == 2.3.*,
+    hslogger == 1.*,
+    haskeline == 0.6.*,
+    stm == 2.*,
+    filepath == 1.*,
+    directory == 1.*,
+    process == 1.*,
+    regex-posix >= 0.94,
+    regex-base >= 0.93,
+    regex-compat == 0.*,
+    pcre-light == 0.*
+  Ghc-options: -rtsopts -threaded -Wall -fwarn-tabs -funbox-strict-fields -O2 -fno-warn-orphans -fno-warn-unused-do-bind -with-rtsopts=-N
+
