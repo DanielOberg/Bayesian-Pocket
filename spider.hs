@@ -56,8 +56,8 @@ parseHTML = readString [ withValidate no
 
 parseRSS :: String -> IOStateArrow s b XmlTree
 parseRSS = readString [ withValidate no
-                       , withWarnings no
-                       ]
+                      , withWarnings no
+                      ]
 
 -- Pretend to be a user of Mozilla Firefox, because Google
 -- will not display results for unknown user agents.

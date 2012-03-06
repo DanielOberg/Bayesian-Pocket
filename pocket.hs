@@ -192,7 +192,7 @@ controller (com:args) s d ns
       return (s, d, False)
   | com == "update" = do
       return (s, d, True)
-checkArg _ s d _  = do
+controller _ s d _  = do
       outputStrLn "Commands: add-source link, remove-source searchterm, good 3, bad 4, all, show, all-good 1 2 3, open searchterm"
       return (s, d, False)
 
