@@ -50,7 +50,7 @@ main = do
 readEvalLoop :: TVar [[(String, String)]] -> (TVar [String], TVar ClassifierData) -> InputT IO ()
 readEvalLoop tlinks (ts, td) = do
   dp <- lift $ readTVarIO td
-  links <- fmap (filterLinks .  concat) $ lift $ readTVarIO tlinks
+  links <- fmap concat $ lift $ readTVarIO tlinks --fmap (filterLinks .  concat) $ lift $ readTVarIO tlinks
   linknrs <- numberUrls dp (links)
   mstr <- getInputLine "% "
   case mstr of
@@ -134,15 +134,15 @@ controller :: [String]
            -> Map Int (Category, String, String) 
            -> InputT IO ([String], ClassifierData, Bool)
 controller (com:args) s d ns 
-  | com == "add-source " = do
+  | com == "add-source" = do
       let s' = removeDuplicates (args ++ s)
       appdata_path <- lift $ getAppUserDataDirectory "pocket"
-      lift $ save_to (combine appdata_path "pocket_data.txt") s'
+      lift $ save_to (combine appdata_path "pocket_links.txt") s'
       return (s', d, s /= s')
   | com == "remove-source" = do
       let s' = filter (\li -> and (map (\si -> not (hasWord si li)) args)) s
       appdata_path <- lift $ getAppUserDataDirectory "pocket"
-      lift $ save_to (combine appdata_path "pocket_data.txt") s'
+      lift $ save_to (combine appdata_path "pocket_links.txt") s'
       return (s', d, False)
   | com == "good" || com == "add" = do
       let ns' = getLinksFromStr ns args
