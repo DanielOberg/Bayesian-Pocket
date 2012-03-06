@@ -1,0 +1,18 @@
+Bayesian Pocket
+===============
+
+Fantastic command line utility that combines a simple bayesian filter and a linkcrawler for those
+times when you don't want to show of your regexp knowledge but just want a simple linkcrawler that
+can be trained to recognize what you want.
+
+Example Commands
+================
+
+    add-source http://api.twitter.com/1/statuses/user_timeline.rss?screen_name=daniel_oberg
+
+    ls
+
+    good 55
+
+    bad 32
+
