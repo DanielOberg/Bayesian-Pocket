@@ -1,4 +1,7 @@
-{-# LANGUAGE Arrows, NoMonomorphismRestriction, OverloadedStrings, ScopedTypeVariables #-}
+{-# LANGUAGE Arrows                    #-}
+{-# LANGUAGE NoMonomorphismRestriction #-}
+{-# LANGUAGE OverloadedStrings         #-}
+{-# LANGUAGE ScopedTypeVariables       #-}
 
 {-
 example :: IO ()
@@ -12,23 +15,22 @@ example = do
 
 module Spider (getLinks, loadFrom, saveTo) where
 
-import Control.Monad.IO.Class
-import Network.HTTP.Types.Header
-import Control.Applicative
-import Text.XML.HXT.Core
-import Network.URI
-import Network.HTTP
-import Network.HTTP.Conduit as Conduit
-import Data.List
-import Data.Char
-import Control.Exception
-import qualified Data.Text as T
+import           Control.Applicative
+import           Control.Exception
+import           Control.Monad.IO.Class
 import qualified Data.ByteString.Lazy.Char8 as L
-import qualified Data.ByteString.Char8 as B
-import Data.Tree.NTree.TypeDefs (NTree)
+import           Data.Char
+import           Data.List
+import           Data.String
+import qualified Data.Text                  as T
+import           Data.Tree.NTree.TypeDefs   (NTree)
+import           Network.HTTP.Conduit       as Conduit
+import           Network.HTTP.Types.Header
+import           Network.URI
+import           Text.XML.HXT.Core
 
 selectAnchors :: ArrowXml cat
-              => cat (NTree XNode) (String, [Char])
+              => cat (NTree XNode) (String, String)
 selectAnchors =
   atTagCase "a"
   >>> (getAttrValue "href" &&&
@@ -50,7 +52,7 @@ selectRSSLinks = atTagCase "item" >>>
 
 -- case-insensitive tag matching
 atTagCase :: ArrowXml a
-          => [Char] -> a (NTree XNode) XmlTree
+          => String -> a (NTree XNode) XmlTree
 atTagCase tag = deep (isElem >>> hasNameWith ((== tag') . upper . localPart))
   where tag' = upper tag
         upper = map toUpper
@@ -68,11 +70,13 @@ parseRSS = readString [ withValidate no
 
 -- Pretend to be a user of Mozilla Firefox, because Google
 -- will not display results for unknown user agents.
+userAgent :: Data.String.IsString a => a
 userAgent = "Mozilla/5.0 (en-US) Firefox/2.0.0.6667"
 
 setConnectionClose :: Conduit.Request -> Conduit.Request
 setConnectionClose req = req{requestHeaders = ("Connection", "close") : requestHeaders req}
 
+simpleHttpWithAgent :: MonadIO m => String -> m L.ByteString
 simpleHttpWithAgent url = liftIO $ withManager $ \man -> do
   req <- liftIO $ parseUrl url
   let custom_header = ("User-Agent", userAgent) :: Network.HTTP.Types.Header.Header
@@ -92,19 +96,17 @@ getLinks :: URI -> IO [(String, String)]
 getLinks uri = do
   body  <- get uri
   links <- runX (parseHTML body >>> selectAnchors)
-  case null links of
-       True -> do
-          rsslinks <- runX (parseRSS body >>> selectRSSLinks)
-          return $ filterBadLinks (show uri) rsslinks
-       False -> do
-          return $ filterBadLinks (show uri) links
+  if null links then
+      (do rsslinks <- runX (parseRSS body >>> selectRSSLinks)
+          return $ filterBadLinks (show uri) rsslinks)
+       else return $ filterBadLinks (show uri) links
 
 
 filterBadLinks :: String -> [(String, String)] -> [(String, String)]
 filterBadLinks base links = [(strip title, strip absolute) | (url, title) <- links
                             , length title > 2
                             , length title < 100
-                            , let (Just absolute) = (expandURIString url base)
+                            , let (Just absolute) = expandURIString url base
                             , not $ isPrefixOf "javascript" absolute
                             ]
 
@@ -114,10 +116,9 @@ strip str = T.unpack (T.strip (T.pack str))
 -- | Load links from file
 loadFrom :: FilePath -> IO [String]
 loadFrom f = do
-  str <- catch (readFile f) (\(e :: IOException) -> return $ show ([] :: [String]))
+  str <- catch (readFile f) (\(_ :: IOException) -> return $ show ([] :: [String]))
   return (read str :: [String])
 
 -- | Save dataset to file
 saveTo :: Show a => FilePath -> a -> IO ()
-saveTo f d = do
-  writeFile f (show d)
+saveTo f d = writeFile f (show d)

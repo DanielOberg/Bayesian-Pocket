@@ -1,49 +1,47 @@
-{-# LANGUAGE NoMonomorphismRestriction, OverloadedStrings, ScopedTypeVariables #-}
+{-# LANGUAGE NoMonomorphismRestriction #-}
+{-# LANGUAGE OverloadedStrings         #-}
+{-# LANGUAGE ScopedTypeVariables       #-}
 
 module Main where
 
-import Network.URI
-import Data.List
-import Data.Maybe
-import Data.Map (Map)
-import qualified Data.Map as Map
-import qualified Data.Set as Set
-import Control.Monad.Trans
-import System.Process
-import qualified Data.Text as T
-import Control.Concurrent
-import System.Directory
-import System.FilePath
-import Text.Regex.PCRE.Light
-import qualified Data.ByteString.Char8 as B
-import Safe
+import           Control.Concurrent
+import           Control.Monad
+import           Control.Monad.Trans
+import qualified Data.ByteString.Char8    as B
+import           Data.List
+import           Data.Map                 (Map)
+import qualified Data.Map                 as Map
+import           Data.Maybe
+import qualified Data.Set                 as Set
+import qualified Data.Text                as T
+import           Network.URI
+import           System.Directory
+import           System.FilePath
+import           System.Process
+import           Text.Regex.PCRE.Light
 
+import           Control.Concurrent.STM
 
-import Control.Concurrent.STM
+import           System.Console.Haskeline
+import           System.Log.Handler.Growl (addTarget, growlHandler)
+import           System.Log.Logger        (Priority (WARNING), rootLoggerName,
+                                           setHandlers, updateGlobalLogger,
+                                           warningM)
 
-import System.Console.Haskeline
-import System.Log.Logger(
-         Priority(WARNING),
-         rootLoggerName,
-         setHandlers,
-         updateGlobalLogger,
-         warningM )
-import System.Log.Handler.Growl ( addTarget, growlHandler )
-
-import Spider
-import Bayesian
+import           Bayesian
+import           Spider
 
 main :: IO ()
 main = do
   appdata_path <- getAppUserDataDirectory "pocket"
   createDirectoryIfMissing False appdata_path
   sources <- loadFrom (combine appdata_path "pocket_links.txt")
-  dataset <- load_from (combine appdata_path "pocket_data.txt")
+  dataset <- loadBayesianFrom (combine appdata_path "pocket_data.txt")
   let uris = mapMaybe parseURI sources
   links <- mapM getLinks uris
-  tlinks <- atomically $ newTVar $ links
-  tsources <- atomically $ newTVar $ sources
-  tdataset <- atomically $ newTVar $ dataset
+  tlinks <- atomically $ newTVar links
+  tsources <- atomically $ newTVar sources
+  tdataset <- atomically $ newTVar dataset
   _ <- forkIO $ waitAndUpdateLinks tlinks tsources tdataset
   runInputT defaultSettings $ readEvalLoop tlinks (tsources, tdataset)
   return ()
@@ -52,7 +50,7 @@ readEvalLoop :: TVar [[(String, String)]] -> (TVar [String], TVar ClassifierData
 readEvalLoop tlinks (ts, td) = do
   dp <- lift $ readTVarIO td
   links <- fmap concat $ lift $ readTVarIO tlinks --fmap (filterLinks .  concat) $ lift $ readTVarIO tlinks
-  linknrs <- numberUrls dp (links)
+  linknrs <- numberUrls dp links
   mstr <- getInputLine "% "
   case mstr of
        Nothing -> return ()
@@ -62,15 +60,14 @@ readEvalLoop tlinks (ts, td) = do
                     d <- lift $ readTVarIO td
                     (s', d', upd) <- controller (words str) s d linknrs
                     lift $! atomically $! writeTVar td d'
-                    case upd of
-                         False ->
-                            readEvalLoop tlinks (ts, td)
-                         True -> do
-                            let uris = mapMaybe parseURI s'
+                    if upd then
+                         do let uris = mapMaybe parseURI s'
                             links' <- lift $ mapM getLinks uris
                             lift $! atomically $! writeTVar tlinks links'
                             lift $! atomically $! writeTVar ts s'
                             readEvalLoop tlinks (ts, td)
+                         else readEvalLoop tlinks (ts, td)
+
 
 numberUrls :: (Ord k, Num k, Monad m, Enum k)
            => ClassifierData
@@ -82,7 +79,7 @@ numberUrls d links = do
   return linknrs
 
 printUrls :: (MonadIO m, Show a1, Show a)
-          => Map a (a1, [Char], t)
+          => Map a (a1, String, t)
           -> InputT m ()
 printUrls linknrs =
   mapM_
@@ -96,7 +93,7 @@ printTitlesOnly :: MonadIO m
 printTitlesOnly linknrs =
   mapM_
     (\(_, (_, title, _)) ->
-       outputStrLn (title))
+       outputStrLn title)
        (Map.toList linknrs)
 
 printLinksOnly :: MonadIO m
@@ -105,21 +102,22 @@ printLinksOnly :: MonadIO m
 printLinksOnly linknrs =
   mapM_
     (\(_, (_, _, url)) ->
-       outputStrLn (url))
+       outputStrLn url)
        (Map.toList linknrs)
 
 padTo :: Int -> a -> [a] -> [a]
-padTo nr space text = text ++ [space] ++ (replicate nr' space)
+padTo nr space text = text ++ [space] ++ replicate nr' space
   where
-    nr' = nr - (length text)
+    nr' = nr - length text
 
-padNrTo :: Show a => Int -> a -> [Char]
-padNrTo le nr = (replicate nr' '0') ++ text
+padNrTo :: Show a => Int -> a -> String
+padNrTo le nr = replicate nr' '0' ++ text
   where
-    nr' = le - (length text)
+    nr' = le - length text
     text = show nr
 
-filterLinks strs = filter (\(title, _) -> match r (B.pack title) [] /= Nothing) strs
+filterLinks :: [(String, t)] -> [(String, t)]
+filterLinks = filter (\(title, _) -> (isJust (match r (B.pack title) [])))
   where
     r = compile "(S\\d?\\dE\\d\\d)|(\\d?\\dx\\d\\d)" [caseless]
 
@@ -127,7 +125,7 @@ lineSeperator :: String -> String
 lineSeperator = padTo 80 '-'
 
 cutLine :: String -> String
-cutLine s = take 80 s
+cutLine = take 80
 
 controller :: [String]
            -> [String]
@@ -138,12 +136,12 @@ controller (com:args) s d ns
   | com == "add-source" = do
       let s' = removeDuplicates (args ++ s)
       appdata_path <- lift $ getAppUserDataDirectory "pocket"
-      lift $ save_to (combine appdata_path "pocket_links.txt") s'
+      lift $ saveTo (combine appdata_path "pocket_links.txt") s'
       return (s', d, s /= s')
   | com == "remove-source" = do
-      let s' = filter (\li -> and (map (\si -> not (hasWord si li)) args)) s
+      let s' = filter (\li -> (all (\si -> not (hasWord si li)) args)) s
       appdata_path <- lift $ getAppUserDataDirectory "pocket"
-      lift $ save_to (combine appdata_path "pocket_links.txt") s'
+      lift $ saveTo (combine appdata_path "pocket_links.txt") s'
       return (s', d, False)
   | com == "good" || com == "add" = do
       let ns' = getLinksFromStr ns args
@@ -171,10 +169,10 @@ controller (com:args) s d ns
   | com == "show" || com == "ls" = do
       printUrls (filterNotCat Bad ns)
       return (s, d, False)
-  | com == "threshold" || com == "limit" = do
+  | com == "threshold" || com == "limit" =
       case maybeRead (head args) of
            Just i -> do
-             let d' = set_threshold d Good i
+             let d' = setThreshold d Good i
              return (s, d', False)
            Nothing ->
               return (s, d, False)
@@ -191,7 +189,7 @@ controller (com:args) s d ns
       let nsGood = getLinksFromStr ns args
       mapM_ (\(_, _, link) -> lift $! system ("open " ++ link)) (Map.elems nsGood)
       return (s, d, False)
-  | com == "update" = do
+  | com == "update" =
       return (s, d, True)
 controller _ s d _  = do
       outputStrLn "Commands: add-source link, remove-source searchterm, good 3, bad 4, all, show, all-good 1 2 3, open searchterm"
@@ -206,8 +204,8 @@ trainUntil :: ClassifierData
            -> ClassifierData
 trainUntil d ns c = rd
   where
-    rd = foldl (trainUntil') d (Map.elems ns)
-    trainUntil' d' (_, title, _) = until (\d'' -> (c == (classify d'' title))) (\dt -> trainWithSmallSet dt title c) d'
+    rd = foldl trainUntil' d (Map.elems ns)
+    trainUntil' d' (_, title, _) = until (\d'' -> c == classify d'' title) (\dt -> trainWithSmallSet dt title c) d'
 
 trainAndSave :: (Show a, Show a1)
              => ClassifierData
@@ -216,7 +214,7 @@ trainAndSave :: (Show a, Show a1)
              -> InputT IO ClassifierData
 trainAndSave d ns (c :: Category) = do
   let d'' = trainUntil d ns c
-  outputStrLn $ lineSeperator $ (show c) ++ " training"
+  outputStrLn $ lineSeperator $ show c ++ " training"
   printUrls ns
   outputStrLn $ lineSeperator ""
   appdata_path <- lift $ getAppUserDataDirectory "pocket"
@@ -227,10 +225,10 @@ hasWord :: String -> String -> Bool
 hasWord a b = T.isInfixOf (T.toCaseFold $ T.pack a) (T.toCaseFold $ T.pack b)
 
 getLinksFromStr :: Map Int (t, String, t1) -> [String] -> Map Int (t, String, t1)
-getLinksFromStr ns str = foldl (\m s -> Map.union (Map.union (fromNr s) (fromSearchTerm s)) m) Map.empty str
+getLinksFromStr ns = foldl (\m s -> Map.union (Map.union (fromNr s) (fromSearchTerm s)) m) Map.empty
   where
-    fromNr s = fromMaybe Map.empty (fmap (\i -> Map.filterWithKey (\k _ -> k == i) ns) (maybeRead s :: Maybe Int))
-    fromSearchTerm s = if (Map.null (fromNr s)) then (Map.filter (\(_, s', _) -> hasWord s s') ns) else Map.empty
+    fromNr s = maybe Map.empty (\i -> Map.filterWithKey (\k _ -> k == i) ns) (maybeRead s :: Maybe Int)
+    fromSearchTerm s = if Map.null (fromNr s) then Map.filter (\(_, s', _) -> hasWord s s') ns else Map.empty
 
 filterNotCat :: (Ord k, Eq a)
              => a -> Map k (a, t, t1) -> Map k (a, t, t1)
@@ -256,12 +254,11 @@ updateLinks tlinks tsources tdata = do
   d <- readTVarIO tdata
   let uris = mapMaybe parseURI sources
   links' <- mapM getLinks uris
-  case links' == links of
-       True -> return ()
-       False -> do
+  Control.Monad.unless (links' == links) $
+       do
           let linkdiff = diffByTitles links links'
           atomically $ writeTVar tlinks links'
-          mapM_ (sendGrowlMessage) (filterBad d linkdiff)
+          mapM_ sendGrowlMessage (filterBad d linkdiff)
 
 waitAndUpdateLinks :: TVar [[(String, String)]]
                    -> TVar [String]
@@ -276,8 +273,8 @@ diffByTitles :: Eq a
              => [[(a, b)]] -> [[(a, b1)]] -> [a]
 diffByTitles links links' = linkdiff
   where
-    linkdiff = (concatFst links) \\ (concatFst links')
-    concatFst l = map (fst)  (concat l)
+    linkdiff = concatFst links \\ concatFst links'
+    concatFst l = map fst (concat l)
 
 filterBad :: ClassifierData -> [String] -> [String]
-filterBad d = filter (\title -> (classify d title) /= Bad)
+filterBad d = filter (\title -> classify d title /= Bad)
