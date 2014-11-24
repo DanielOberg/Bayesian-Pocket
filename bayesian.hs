@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Bayesian 
+module Bayesian
   (
     train
   , trainWithSmallSet
@@ -18,6 +18,7 @@ module Bayesian
 
 
 import System.IO
+import Control.Exception
 import Data.Maybe
 import Data.Ord
 import Data.List
@@ -27,6 +28,7 @@ import Data.Set (Set)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Data.Text as T
+import Safe(tailSafe)
 
 
 -------------------------------- DATA TYPES ---------------------------------
@@ -56,14 +58,14 @@ default_data     = ClassifierData Map.empty Map.empty default_thresholds default
 
 -------------------------------- PUBLIC FUNCTIONS ---------------------------
 
--- | Train our dataset to recognise the features as category
+-- | Train our dataset to recognize the features as category
 --
 --   > train default_data  "Mail me money" Bad
 train :: ClassifierData -> [Char] -> Category -> ClassifierData
 train d item cat = inc_cc d' cat
   where
     features = get_large_feature_set item
-    d' = Set.fold (\f ld -> inc_fc ld f cat) d features 
+    d' = Set.fold (\f ld -> inc_fc ld f cat) d features
 
 trainWithSmallSet :: ClassifierData
                       -> [Char]
@@ -72,7 +74,7 @@ trainWithSmallSet :: ClassifierData
 trainWithSmallSet d item cat = inc_cc d' cat
   where
     features = get_large_feature_set item
-    d' = Set.fold (\f ld -> inc_fc ld f cat) d features 
+    d' = Set.fold (\f ld -> inc_fc ld f cat) d features
 
 -- | Classify the string into a category and categorise as Bad if unsure
 --
@@ -94,9 +96,10 @@ classify_with_default d item def = if breaksThreshold then def else best_cat
 
 -- | Load dataset from file
 load_from :: FilePath -> IO ClassifierData
-load_from f = do 
+load_from f = do
   str <- catch (readFile f)
-               (\_ -> do 
+               (\e -> do
+                   let err = show (e :: IOException)
                    hPutStr stderr ("Saving to: " ++ f)
                    return $ show default_data)
   return (read str :: ClassifierData)
@@ -120,7 +123,7 @@ get_features :: [Char] -> Set T.Text
 get_features doc = Set.fromList words'
   where
     splitTokens = "!#$%&'()*+,./:;<=>?@\^_`{|}~\t\r\n\v\f[] "
-    words' = [T.toCaseFold (T.pack s) | s <- splitOneOf splitTokens doc, 
+    words' = [T.toCaseFold (T.pack s) | s <- splitOneOf splitTokens doc,
                                             length s > 2, length s < 20]
 
 -- | Split words into features (tokens). This works on small sets by combining words
@@ -134,9 +137,9 @@ get_large_feature_set :: [Char] -> Set T.Text
 get_large_feature_set doc = Set.fromList (w ++ w')
   where
     splitTokens = "!#$%&'()*+,./:;<=>?@\^_`{|}~\t\r\n\v\f[] "
-    w = [T.toCaseFold (T.pack s) | s <- splitOneOf splitTokens doc, 
+    w = [T.toCaseFold (T.pack s) | s <- splitOneOf splitTokens doc,
                                             length s > 0, length s < 20]
-    w' = zipWith (\x y -> T.unwords (y:[x])) (tail w) w
+    w' = zipWith (\x y -> T.unwords (y:[x])) (tailSafe w) w
 
 add_one :: Num a => a -> a -> a
 add_one _ y  = y + 1
@@ -149,7 +152,7 @@ inc_fc d f cat = d { fc = fc' }
 inc_cc :: ClassifierData -> Category -> ClassifierData
 inc_cc d cat   = d { cc = cc' }
   where
-    cc' = Map.insertWith (add_one) cat 1 (cc d) 
+    cc' = Map.insertWith (add_one) cat 1 (cc d)
 
 count_fc :: ClassifierData -> T.Text -> Category -> Int
 count_fc d f cat = fromMaybe 0 (Map.lookup (f, cat) (fc d))
@@ -158,15 +161,15 @@ count_cc :: ClassifierData -> Category -> Int
 count_cc d cat = fromMaybe 0 (Map.lookup cat (cc d))
 
 count_total :: ClassifierData -> Int
-count_total d   = Map.fold (+) 0 (cc d) 
+count_total d   = Map.fold (+) 0 (cc d)
 
 all_categories :: [Category]
 all_categories = [(minBound :: Category) .. ]
 
 fprob :: Fractional a => ClassifierData -> T.Text -> Category -> a
-fprob d f cat 
+fprob d f cat
   | count_cc d cat == 0 = 0.0
-  | otherwise = fromIntegral (count_fc d f cat) / fromIntegral (count_cc d cat) 
+  | otherwise = fromIntegral (count_fc d f cat) / fromIntegral (count_cc d cat)
 
 weightedprob :: ClassifierData -> T.Text -> Category -> (T.Text -> Category -> Float) -> Float -> Float -> Float
 weightedprob d f cat prf weight ap = ((weight*ap)+(totals*basicprob))/(weight+totals)
@@ -198,7 +201,7 @@ get_threshold d cat = fromMaybe 0.0 (Map.lookup cat (thresholds d))
 example_training :: ClassifierData -> ClassifierData
 example_training da = foldl (\d (s, c) -> train d s c) da trainingdata
   where
-    trainingdata = [("Nobody owns the water.", Good), 
+    trainingdata = [("Nobody owns the water.", Good),
                     ("the quick rabbit jumps fences", Good),
                     ("buy pharmaceuticals now", Bad),
                     ("make quick money at the online casino", Bad),

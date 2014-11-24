@@ -16,12 +16,13 @@ import System.Directory
 import System.FilePath
 import Text.Regex.PCRE.Light
 import qualified Data.ByteString.Char8 as B
+import Safe
 
 
 import Control.Concurrent.STM
 
 import System.Console.Haskeline
-import System.Log.Logger( 
+import System.Log.Logger(
          Priority(WARNING),
          rootLoggerName,
          setHandlers,
@@ -71,39 +72,39 @@ readEvalLoop tlinks (ts, td) = do
                             lift $! atomically $! writeTVar ts s'
                             readEvalLoop tlinks (ts, td)
 
-numberUrls :: (Ord k, Num k, Monad m, Enum k) 
-           => ClassifierData 
-           -> [(String, t)] 
+numberUrls :: (Ord k, Num k, Monad m, Enum k)
+           => ClassifierData
+           -> [(String, t)]
            -> m (Map k (Category, String, t))
 numberUrls d links = do
   let linkclasses = map (\(t, l) -> (classify d t, t, l)) links
   let linknrs = Map.fromList $ zip [1..] linkclasses
   return linknrs
 
-printUrls :: (MonadIO m, Show a1, Show a) 
-          => Map a (a1, [Char], t) 
+printUrls :: (MonadIO m, Show a1, Show a)
+          => Map a (a1, [Char], t)
           -> InputT m ()
-printUrls linknrs = 
-  mapM_ 
-    (\(nr, (cat, title, _)) -> 
+printUrls linknrs =
+  mapM_
+    (\(nr, (cat, title, _)) ->
        outputStrLn (cutLine ("[" ++ padNrTo 3 nr ++ "] " ++ padTo 4 ' ' (show cat) ++ ": " ++ title)))
        (Map.toList linknrs)
 
-printTitlesOnly :: MonadIO m 
-                => Map t (t1, String, t2) 
+printTitlesOnly :: MonadIO m
+                => Map t (t1, String, t2)
                 -> InputT m ()
-printTitlesOnly linknrs = 
-  mapM_ 
-    (\(_, (_, title, _)) -> 
+printTitlesOnly linknrs =
+  mapM_
+    (\(_, (_, title, _)) ->
        outputStrLn (title))
        (Map.toList linknrs)
 
-printLinksOnly :: MonadIO m 
-               => Map t (t1, t2, String) 
+printLinksOnly :: MonadIO m
+               => Map t (t1, t2, String)
                -> InputT m ()
-printLinksOnly linknrs = 
-  mapM_ 
-    (\(_, (_, _, url)) -> 
+printLinksOnly linknrs =
+  mapM_
+    (\(_, (_, _, url)) ->
        outputStrLn (url))
        (Map.toList linknrs)
 
@@ -128,12 +129,12 @@ lineSeperator = padTo 80 '-'
 cutLine :: String -> String
 cutLine s = take 80 s
 
-controller :: [String] 
-           -> [String] 
-           -> ClassifierData 
-           -> Map Int (Category, String, String) 
+controller :: [String]
+           -> [String]
+           -> ClassifierData
+           -> Map Int (Category, String, String)
            -> InputT IO ([String], ClassifierData, Bool)
-controller (com:args) s d ns 
+controller (com:args) s d ns
   | com == "add-source" = do
       let s' = removeDuplicates (args ++ s)
       appdata_path <- lift $ getAppUserDataDirectory "pocket"
@@ -208,7 +209,7 @@ trainUntil d ns c = rd
     rd = foldl (trainUntil') d (Map.elems ns)
     trainUntil' d' (_, title, _) = until (\d'' -> (c == (classify d'' title))) (\dt -> trainWithSmallSet dt title c) d'
 
-trainAndSave :: (Show a, Show a1) 
+trainAndSave :: (Show a, Show a1)
              => ClassifierData
              -> Map a (a1, String, t)
              -> Category
@@ -231,7 +232,7 @@ getLinksFromStr ns str = foldl (\m s -> Map.union (Map.union (fromNr s) (fromSea
     fromNr s = fromMaybe Map.empty (fmap (\i -> Map.filterWithKey (\k _ -> k == i) ns) (maybeRead s :: Maybe Int))
     fromSearchTerm s = if (Map.null (fromNr s)) then (Map.filter (\(_, s', _) -> hasWord s s') ns) else Map.empty
 
-filterNotCat :: (Ord k, Eq a) 
+filterNotCat :: (Ord k, Eq a)
              => a -> Map k (a, t, t1) -> Map k (a, t, t1)
 filterNotCat cat = Map.filter (\(c, _, _) -> c /= cat)
 
@@ -271,7 +272,7 @@ waitAndUpdateLinks tlinks tsources tdata = do
   updateLinks tlinks tsources tdata
   waitAndUpdateLinks tlinks tsources tdata
 
-diffByTitles :: Eq a 
+diffByTitles :: Eq a
              => [[(a, b)]] -> [[(a, b1)]] -> [a]
 diffByTitles links links' = linkdiff
   where

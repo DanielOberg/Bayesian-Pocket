@@ -1,4 +1,4 @@
-{-# LANGUAGE Arrows, NoMonomorphismRestriction, OverloadedStrings #-}
+{-# LANGUAGE Arrows, NoMonomorphismRestriction, OverloadedStrings, ScopedTypeVariables #-}
 
 {-
 example :: IO ()
@@ -12,25 +12,32 @@ example = do
 
 module Spider (getLinks, loadFrom, saveTo) where
 
+import Control.Monad.IO.Class
+import Network.HTTP.Types.Header
+import Control.Applicative
 import Text.XML.HXT.Core
 import Network.URI
 import Network.HTTP
+import Network.HTTP.Conduit as Conduit
 import Data.List
 import Data.Char
+import Control.Exception
 import qualified Data.Text as T
+import qualified Data.ByteString.Lazy.Char8 as L
+import qualified Data.ByteString.Char8 as B
 import Data.Tree.NTree.TypeDefs (NTree)
 
-selectAnchors :: ArrowXml cat 
+selectAnchors :: ArrowXml cat
               => cat (NTree XNode) (String, [Char])
-selectAnchors = 
+selectAnchors =
   atTagCase "a"
-  >>> (getAttrValue "href" &&& 
+  >>> (getAttrValue "href" &&&
        -- The title may be broken up into multiple text nodes.
-       -- So, we collect it as a list and then lift 'concat' 
+       -- So, we collect it as a list and then lift 'concat'
        -- to combine it.
        (listA (deep isText >>> getText) >>> arr concat))
 
-text :: ArrowXml cat 
+text :: ArrowXml cat
      => cat (NTree XNode) String
 text = getChildren >>> getText
 
@@ -42,7 +49,7 @@ selectRSSLinks = atTagCase "item" >>>
     returnA -< (link, title)
 
 -- case-insensitive tag matching
-atTagCase :: ArrowXml a 
+atTagCase :: ArrowXml a
           => [Char] -> a (NTree XNode) XmlTree
 atTagCase tag = deep (isElem >>> hasNameWith ((== tag') . upper . localPart))
   where tag' = upper tag
@@ -61,21 +68,28 @@ parseRSS = readString [ withValidate no
 
 -- Pretend to be a user of Mozilla Firefox, because Google
 -- will not display results for unknown user agents.
-userAgent :: String
-userAgent = "Mozilla/5.0 (en-US) Firefox/2.0.0.6667" 
+userAgent = "Mozilla/5.0 (en-US) Firefox/2.0.0.6667"
+
+setConnectionClose :: Conduit.Request -> Conduit.Request
+setConnectionClose req = req{requestHeaders = ("Connection", "close") : requestHeaders req}
+
+simpleHttpWithAgent url = liftIO $ withManager $ \man -> do
+  req <- liftIO $ parseUrl url
+  let custom_header = ("User-Agent", userAgent) :: Network.HTTP.Types.Header.Header
+  let request = req { requestHeaders = [custom_header] }
+  responseBody <$> httpLbs (setConnectionClose request) man
 
 get :: URI -> IO String
 get uri = do
-  let req = Request uri GET [] ""
-  eresp <- simpleHTTP $ insertHeader HdrUserAgent userAgent req
+  eresp <- try (simpleHttpWithAgent $ show uri)
   case eresp of
-    Left er -> error $ show er
-    Right res -> return $ rspBody res
+    Left (er :: IOException) -> error $ show er
+    Right res -> return $ L.unpack res
 
 
 
 getLinks :: URI -> IO [(String, String)]
-getLinks uri = do 
+getLinks uri = do
   body  <- get uri
   links <- runX (parseHTML body >>> selectAnchors)
   case null links of
@@ -99,12 +113,11 @@ strip str = T.unpack (T.strip (T.pack str))
 
 -- | Load links from file
 loadFrom :: FilePath -> IO [String]
-loadFrom f = do 
-  str <- catch (readFile f) (\_ -> return $ show ([] :: [String]))
+loadFrom f = do
+  str <- catch (readFile f) (\(e :: IOException) -> return $ show ([] :: [String]))
   return (read str :: [String])
 
 -- | Save dataset to file
 saveTo :: Show a => FilePath -> a -> IO ()
 saveTo f d = do
-  writeFile f (show d) 
-
+  writeFile f (show d)
