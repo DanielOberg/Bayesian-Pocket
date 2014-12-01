@@ -39,7 +39,7 @@ main = do
   dataset <- loadBayesianFrom (combine appdata_path "pocket_data.txt")
   let uris = mapMaybe parseURI sources
   links <- mapM getLinks uris
-  tlinks <- atomically $ newTVar links
+  tlinks <- atomically $ newTVar $ fmap (nubBy (\a b -> (snd a) == (snd b))) links
   tsources <- atomically $ newTVar sources
   tdataset <- atomically $ newTVar dataset
   _ <- forkIO $ waitAndUpdateLinks tlinks tsources tdataset
@@ -48,6 +48,7 @@ main = do
 
 readEvalLoop :: TVar [[(String, String)]] -> (TVar [String], TVar ClassifierData) -> InputT IO ()
 readEvalLoop tlinks (ts, td) = do
+  isInteractive <- haveTerminalUI
   dp <- lift $ readTVarIO td
   links <- fmap concat $ lift $ readTVarIO tlinks --fmap (filterLinks .  concat) $ lift $ readTVarIO tlinks
   linknrs <- numberUrls dp links
@@ -58,7 +59,7 @@ readEvalLoop tlinks (ts, td) = do
                 | otherwise -> do
                     s <- lift $ readTVarIO ts
                     d <- lift $ readTVarIO td
-                    (s', d', upd) <- controller (words str) s d linknrs
+                    (s', d', upd) <- if isInteractive then controller (words str) s d linknrs else return (s, train d str Good, False)
                     lift $! atomically $! writeTVar td d'
                     if upd then
                          do let uris = mapMaybe parseURI s'
@@ -192,7 +193,7 @@ controller (com:args) s d ns
   | com == "update" =
       return (s, d, True)
 controller _ s d _  = do
-      outputStrLn "Commands: add-source link, remove-source searchterm, good 3, bad 4, all, show, all-good 1 2 3, open searchterm"
+      outputStrLn "Commands: add-source link, remove-source searchterm, search searchterm, seems-ok, good 3, bad 4, all, show, all-good 1 2 3, open searchterm"
       return (s, d, False)
 
 maybeRead :: Read a => String -> Maybe a

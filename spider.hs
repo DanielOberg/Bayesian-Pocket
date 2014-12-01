@@ -21,12 +21,14 @@ import           Control.Monad.IO.Class
 import qualified Data.ByteString.Lazy.Char8 as L
 import           Data.Char
 import           Data.List
+import           Data.Maybe
 import           Data.String
 import qualified Data.Text                  as T
 import           Data.Tree.NTree.TypeDefs   (NTree)
 import           Network.HTTP.Conduit       as Conduit
 import           Network.HTTP.Types.Header
 import           Network.URI
+import           Safe
 import           Text.XML.HXT.Core
 
 selectAnchors :: ArrowXml cat
@@ -38,6 +40,21 @@ selectAnchors =
        -- So, we collect it as a list and then lift 'concat'
        -- to combine it.
        (listA (deep isText >>> getText) >>> arr concat))
+
+getTitlesOnly = atTagCase "a" >>> text
+
+getAnchorsOnly = atTagCase "a" >>> getAttrValue "href"
+
+selectAnchorsFromTable = atTagCase "tr" >>>
+  proc l -> do
+    lns    <- listA getAnchorsOnly                -< l
+    txs    <- listA getTitlesOnly                 -< l
+    let tit = headMay $ sortBy (\ a b -> compare (length a) (length b)) txs
+    let mag = find (\a -> isPrefixOf "magnet:" a) lns
+    let res = liftA2 (\a b -> (a, b)) mag tit
+    returnA -< res
+
+
 
 text :: ArrowXml cat
      => cat (NTree XNode) String
@@ -95,11 +112,11 @@ get uri = do
 getLinks :: URI -> IO [(String, String)]
 getLinks uri = do
   body  <- get uri
-  links <- runX (parseHTML body >>> selectAnchors)
+  links <- runX (parseHTML body >>> selectAnchorsFromTable)
   if null links then
       (do rsslinks <- runX (parseRSS body >>> selectRSSLinks)
           return $ filterBadLinks (show uri) rsslinks)
-       else return $ filterBadLinks (show uri) links
+       else return $ filterBadLinks (show uri) $ catMaybes links
 
 
 filterBadLinks :: String -> [(String, String)] -> [(String, String)]
