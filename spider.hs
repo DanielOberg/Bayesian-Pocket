@@ -41,6 +41,7 @@ selectAnchors =
        -- to combine it.
        (listA (deep isText >>> getText) >>> arr concat))
 
+{-
 getTitlesOnly = atTagCase "a" >>> text
 
 getAnchorsOnly = atTagCase "a" >>> getAttrValue "href"
@@ -53,7 +54,7 @@ selectAnchorsFromTable = atTagCase "tr" >>>
     let mag = find (\a -> isPrefixOf "magnet:" a) lns
     let res = liftA2 (\a b -> (a, b)) mag tit
     returnA -< res
-
+-}
 
 
 text :: ArrowXml cat
@@ -112,11 +113,11 @@ get uri = do
 getLinks :: URI -> IO [(String, String)]
 getLinks uri = do
   body  <- get uri
-  links <- runX (parseHTML body >>> selectAnchorsFromTable)
+  links <- runX (parseHTML body >>> selectAnchors)
   if null links then
       (do rsslinks <- runX (parseRSS body >>> selectRSSLinks)
           return $ filterBadLinks (show uri) rsslinks)
-       else return $ filterBadLinks (show uri) $ catMaybes links
+       else return $ filterBadLinks (show uri) links
 
 
 filterBadLinks :: String -> [(String, String)] -> [(String, String)]
