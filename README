@@ -16,3 +16,5 @@ Example Commands
 
     bad 32
 
+You can train it on specific files by piping a list with a line for each file like so:
+find ~/Downloads/*.txt -type f -print0 | xargs -0 basename -s .txt | ./pocket 
